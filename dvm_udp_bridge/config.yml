@@ -1,8 +1,18 @@
-Bridge1:
-  Address: "127.0.0.1"
-  ReceivePort: 34001
-  SendPort: 32001
-Bridge2:
-  Address: "127.0.0.1"
-  ReceivePort: 32005
-  SendPort: 34010
+LogConsole: true
+Bridges: # Bridge info. this does not have to do with the routing, just a list of bridges
+  - Name: Bridge1
+    Address: "127.0.0.1"
+    ReceivePort: 34001
+    SendPort: 32001
+  - Name: Bridge2
+    Address: "127.0.0.1"
+    ReceivePort: 34010
+    SendPort: 32005
+
+Routing: # Where to send and receive the data. I guess that kinda self defines itself huh
+  - Source: Bridge1
+    Destinations: #Support for muultiple destinations. Carful. easy to get confused and start trying to send stuff back to yourself
+      - Bridge2
+  - Source: Bridge2
+    Destinations:
+      - Bridge1
