@@ -1,0 +1,8 @@
+Bridge1:
+  Address: "127.0.0.1"
+  ReceivePort: 34001
+  SendPort: 32001
+Bridge2:
+  Address: "127.0.0.1"
+  ReceivePort: 32005
+  SendPort: 34010
