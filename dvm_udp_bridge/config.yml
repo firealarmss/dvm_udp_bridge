@@ -4,15 +4,25 @@ Bridges: # Bridge info. this does not have to do with the routing, just a list o
     Address: "127.0.0.1"
     ReceivePort: 34001
     SendPort: 32001
+    Type: dvmbridge
   - Name: Bridge2
     Address: "127.0.0.1"
     ReceivePort: 34010
     SendPort: 32005
+    Type: dvmbridge
+  - Name: Client1
+    Address: "127.0.0.1"
+    ReceivePort: 33000
+    SendPort: 32000
+    Type: client
 
 Routing: # Where to send and receive the data. I guess that kinda self defines itself huh
   - Source: Bridge1
     Destinations: #Support for muultiple destinations. Carful. easy to get confused and start trying to send stuff back to yourself
       - Bridge2
+      - Client1
   - Source: Bridge2
     Destinations:
+      - Bridge1
+  - Source: Client1
       - Bridge1

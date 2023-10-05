@@ -12,6 +12,8 @@ public class BridgeEndPoint
     public string Address { get; set; }
     public int ReceivePort { get; set; }
     public int SendPort { get; set; }
+
+    public string Type { get; set; } 
 }
 public class BridgeRouting
 {
@@ -56,7 +58,7 @@ public class UdpAudioBridge : IDisposable
             }
         }
     }
-    private void ListenAndForward(UdpClient receiver, List<IPEndPoint> sendingEndPoints)
+    private void ListenAndForward(UdpClient receiver, List<IPEndPoint> sendingEndPoints, BridgeEndPoint sourceBridge)
     {
         while (true)
         {
@@ -68,7 +70,7 @@ public class UdpAudioBridge : IDisposable
                 Console.WriteLine($"Received an unexpected data from dvmbridge: {receivedBytes.Length}");
                 continue;
             }
-
+            Console.WriteLine(receivedBytes.Length);
             // Extract srcId
             int srcId = (receivedBytes[receivedBytes.Length - 8] << 24) |
                         (receivedBytes[receivedBytes.Length - 7] << 16) |
@@ -84,22 +86,34 @@ public class UdpAudioBridge : IDisposable
             {
                 Console.WriteLine($"Received SrcId: {srcId}, DstId: {dstId}");
             }
-            // TODO: Maybe do somthing else useful with the dst id? dunno
 
             byte[] audioPacket = new byte[4 + 320];
-
             Array.Copy(receivedBytes, receivedBytes.Length - 8, audioPacket, 0, 4);
             Buffer.BlockCopy(receivedBytes, 0, audioPacket, 4, 320);
 
             foreach (var sendingEndPoint in sendingEndPoints)
             {
+                var destinationBridge = config.Bridges.FirstOrDefault(b => b.SendPort == sendingEndPoint.Port);
+
+                if (destinationBridge != null && destinationBridge.Type == "client")
+                {
+                    byte[] newAudioPacket = new byte[audioPacket.Length + 4];
+                    Array.Copy(audioPacket, 0, newAudioPacket, 0, 4);
+                    Array.Copy(audioPacket, 4, newAudioPacket, 8, 320);
+                    BitConverter.GetBytes(dstId).CopyTo(newAudioPacket, 4);
+
+                    audioPacket = newAudioPacket;
+                }
+
                 using (UdpClient forwarder = new UdpClient())
                 {
+                    Console.WriteLine(dstId);
                     forwarder.Send(audioPacket, audioPacket.Length, sendingEndPoint);
                 }
+
                 if (config.LogConsole)
                 {
-                    Console.WriteLine($"Voice traffic on bridge: {config.Bridges.First(b => b.ReceivePort == ((IPEndPoint)receiver.Client.LocalEndPoint).Port).Name} forwarding to: {config.Bridges.First(b => b.SendPort == sendingEndPoint.Port).Name}");
+                    Console.WriteLine($"Voice traffic on {sourceBridge.Type} : {config.Bridges.First(b => b.ReceivePort == ((IPEndPoint)receiver.Client.LocalEndPoint).Port).Name} forwarding to: {destinationBridge?.Name}");
                 }
             }
         }
@@ -112,7 +126,7 @@ public class UdpAudioBridge : IDisposable
             receivers[sourceBridge.Name] = receiver;
         }
 
-        Task.Run(() => ListenAndForward(receivers[sourceBridge.Name], destinationEndPoints));
+        Task.Run(() => ListenAndForward(receivers[sourceBridge.Name], destinationEndPoints, sourceBridge));
     }
     public void Stop()
     {
