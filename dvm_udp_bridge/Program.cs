@@ -6,6 +6,8 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
+
 public class BridgeEndPoint
 {
     public string Name { get; set; }
@@ -13,7 +15,7 @@ public class BridgeEndPoint
     public int ReceivePort { get; set; }
     public int SendPort { get; set; }
 
-    public string Type { get; set; } 
+    public string Type { get; set; }
 }
 public class BridgeRouting
 {
@@ -65,7 +67,11 @@ public class UdpAudioBridge : IDisposable
             var endPoint = new IPEndPoint(IPAddress.Any, 0);
             byte[] receivedBytes = receiver.Receive(ref endPoint);
 
-            Console.WriteLine(receivedBytes.Length);
+         //   Console.WriteLine(receivedBytes.Length);
+            if (receivedBytes.Length <= 320)
+            {
+                Console.WriteLine($"Low bytes: {receivedBytes.Length}");
+            }
 
             // Extract srcId and dstId
             int srcId = (receivedBytes[receivedBytes.Length - 8] << 24) |
@@ -97,21 +103,96 @@ public class UdpAudioBridge : IDisposable
                     Array.Copy(receivedBytes, receivedBytes.Length - 8, audioPacket, 0, 4);
                     Buffer.BlockCopy(receivedBytes, 0, audioPacket, 4, 320);
                 }
+                else if (sourceBridge.Type == "dvmbridge")
+                {
+                    byte[] srcIdBytes = new byte[4];
+                    byte[] dstIdBytes = new byte[4];
+                    audioPacket = new byte[320];
+
+                    Buffer.BlockCopy(receivedBytes, 0, audioPacket, 0, 320);
+                    Array.Copy(receivedBytes, 320, srcIdBytes, 0, 4);
+                    Array.Copy(receivedBytes, 324, dstIdBytes, 0, 4);
+                }
+                else if (sourceBridge.Type == "allstar")
+                {
+                    // It seems most of this stuff is plain ignored in allstar. Dumb so just ignore all the header stuff.
+                    audioPacket = receivedBytes.Skip(32).Take(320).ToArray();
+                    srcId = 0;
+                    dstId = 0;
+                }
                 else
                 {
                     audioPacket = new byte[4 + 320];
                     Array.Copy(receivedBytes, receivedBytes.Length - 8, audioPacket, 0, 4);
                     Buffer.BlockCopy(receivedBytes, 0, audioPacket, 4, 320);
                 }
+                Console.WriteLine(receivedBytes.Length);
 
-                if (destinationBridge != null && destinationBridge.Type == "client")
+                if (destinationBridge != null && receivedBytes.Length > 320)
                 {
-                    byte[] newAudioPacket = new byte[audioPacket.Length + 4];
-                    Array.Copy(audioPacket, 0, newAudioPacket, 0, 4);
-                    Array.Copy(audioPacket, 4, newAudioPacket, 8, 320);
-                    BitConverter.GetBytes(dstId).CopyTo(newAudioPacket, 4);
+                    if (destinationBridge.Type == "client")
+                    {
+                        int originalLength = audioPacket.Length;
+                        byte[] newAudioPacket = new byte[originalLength + 8];
+                        byte[] srcIdBytes = BitConverter.GetBytes(srcId);
+                        byte[] dstIdBytes = BitConverter.GetBytes(dstId);
 
-                    audioPacket = newAudioPacket;
+                        if (BitConverter.IsLittleEndian)
+                        {
+                            srcIdBytes = srcIdBytes.Reverse().ToArray();
+                            dstIdBytes = dstIdBytes.Reverse().ToArray();
+                        }
+
+                        Buffer.BlockCopy(srcIdBytes, 0, newAudioPacket, 0, 4);
+                        Buffer.BlockCopy(dstIdBytes, 0, newAudioPacket, 4, 4);
+                        Buffer.BlockCopy(audioPacket, 0, newAudioPacket, 8, originalLength);
+
+                        audioPacket = newAudioPacket;
+                        Console.WriteLine($"Send to CLIENTTTTT {destinationBridge.Name}");
+                    }
+                    else if (destinationBridge.Type == "dvmbridge")
+                    {
+                        byte[] newAudioPacket = new byte[324];
+
+                        byte[] srcIdBytes = BitConverter.GetBytes(srcId);
+                        if (BitConverter.IsLittleEndian)
+                        {
+                            srcIdBytes = srcIdBytes.Reverse().ToArray();
+                        }
+
+                        Buffer.BlockCopy(srcIdBytes, 0, newAudioPacket, 0, 4);
+                        Buffer.BlockCopy(audioPacket, 0, newAudioPacket, 4, 320);
+
+                        audioPacket = newAudioPacket;
+                        Console.WriteLine("BRIDGEE");
+                    }
+                    else if(destinationBridge.Type == "allstar")
+                    {
+                        const uint VOICE_PACKET_TYPE = 0;
+                        const uint SEQUENCE_NUMBER = 1234;
+
+                        byte[] allstarPacket = new byte[320 + 32];
+ 
+                        // It seems most of this stuff is plain ignored in allstar. Dumb
+
+                        Buffer.BlockCopy(Encoding.ASCII.GetBytes("USRP"), 0, allstarPacket, 0, 4);
+    
+                        Buffer.BlockCopy(BitConverter.GetBytes((uint)SEQUENCE_NUMBER), 0, allstarPacket, 4, 4);
+    
+                        Buffer.BlockCopy(BitConverter.GetBytes((uint)2), 0, allstarPacket, 8, 4);
+    
+                        Buffer.BlockCopy(BitConverter.GetBytes((uint)7), 0, allstarPacket, 12, 4);
+    
+                        Buffer.BlockCopy(BitConverter.GetBytes((uint)dstId), 0, allstarPacket, 16, 4);
+    
+                        Buffer.BlockCopy(BitConverter.GetBytes(VOICE_PACKET_TYPE), 0, allstarPacket, 20, 4);
+    
+                        Buffer.BlockCopy(new byte[8], 0, allstarPacket, 24, 8);
+    
+                        Buffer.BlockCopy(audioPacket, 0, allstarPacket, 32, 320);
+
+                        audioPacket = allstarPacket;
+                    }
                 }
 
                 using (UdpClient forwarder = new UdpClient())
